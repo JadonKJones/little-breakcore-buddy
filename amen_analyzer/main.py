@@ -2,6 +2,7 @@ import bisect
 import os
 import sys
 import pygame
+import librosa as lr
 
 from audio_engine import AudioEngine
 from ui import WaveformDisplay
@@ -28,8 +29,15 @@ LABEL_KEYS = {
 
 
 def main():
-    audio_path = sys.argv[1] if len(sys.argv) > 1 else "i know it hurts only drums.wav"
-    base_path, _ = os.path.splitext(audio_path)
+    # Usage: main.py <drums_only.wav> [full_song.wav]
+    # If a second file is given, onsets are detected from the drums-only
+    # track (cleaner detection), but playback/waveform/video export use the
+    # full song -- so the video plays the whole mix while the sprite reacts
+    # to hits timed off the isolated drums.
+    drums_path = sys.argv[1] if len(sys.argv) > 1 else "i know it hurts only drums.wav"
+    song_path = sys.argv[2] if len(sys.argv) > 2 else drums_path
+
+    base_path, _ = os.path.splitext(song_path)
     json_path = base_path + ".json"
     csv_path = base_path + ".csv"
     video_path = base_path + "_animated.mp4"
@@ -45,11 +53,16 @@ def main():
     sprite = DrummerSprite(size=SPRITE_SIZE)
 
     try:
-        audio_engine.load_audio(audio_path)
+        audio_engine.load_audio(song_path)
         waveform_ui.set_audio(audio_engine.audio_data, audio_engine.sr, audio_engine.duration)
 
-        analyzer = DrumAnalyzer(sr=audio_engine.sr)
-        onset_labels = analyzer.detect_onsets(audio_engine.audio_data)
+        if drums_path == song_path:
+            drums_audio, drums_sr = audio_engine.audio_data, audio_engine.sr
+        else:
+            drums_audio, drums_sr = lr.load(drums_path, sr=None, mono=True)
+
+        analyzer = DrumAnalyzer(sr=drums_sr)
+        onset_labels = analyzer.detect_onsets(drums_audio)
         onsets = list(onset_labels)
         waveform_ui.set_onsets(onsets)
         history = History(onsets)
@@ -128,7 +141,7 @@ def main():
         pygame.display.flip()
 
         try:
-            export_video(audio_path, onsets, audio_engine.duration, video_path)
+            export_video(song_path, onsets, audio_engine.duration, video_path)
             set_status(f"Exported video to {video_path}")
         except Exception as e:
             set_status(f"Video export failed: {e}")
@@ -237,8 +250,9 @@ def main():
             waveform_surface = waveform_ui.get_surface_with_playhead(playhead_time)
             screen.blit(waveform_surface, (WAVEFORM_X, WAVEFORM_Y))
 
+            source_label = song_path if drums_path == song_path else f"{song_path}  (onsets from {drums_path})"
             hint = font.render(
-                f"{audio_path}  |  SPACE: play/pause  |  ESC: quit  |  "
+                f"{source_label}  |  SPACE: play/pause  |  ESC: quit  |  "
                 f"duration: {audio_engine.duration:.2f}s  |  onsets: {len(onsets)}",
                 True, (200, 200, 200)
             )

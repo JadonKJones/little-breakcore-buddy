@@ -20,11 +20,12 @@ class DrumAnalyzer:
         self.sr = sr
         self.onsets = []  # list of (time, label), sorted, deduped
 
-    def detect_onsets(self, audio_data, merge_window=0.02):
-        """Runs per-band onset detection and merges results into a single
-        chronological list of (time, label). merge_window: onsets from
-        different bands within this many seconds of each other are treated
-        as one hit (the earlier band in BANDS order wins the label)."""
+    def detect_onsets(self, audio_data):
+        """Runs per-band onset detection and returns a single chronological
+        list of (time, label). Kick/snare/cymbal are independent channels --
+        a kick and a cymbal landing at the same instant are both kept (not
+        collapsed to one winner), since the sprite treats kick as an overlay
+        on top of whatever snare/cymbal pose is active, not a competing pose."""
         band_hits = []
         for label, (fmin, fmax) in self.BANDS.items():
             fmax = fmax or (self.sr // 2)
@@ -40,15 +41,5 @@ class DrumAnalyzer:
                 band_hits.append((float(t), label))
 
         band_hits.sort(key=lambda h: h[0])
-
-        priority = {label: i for i, label in enumerate(self.BANDS)}
-        merged = []
-        for t, label in band_hits:
-            if merged and t - merged[-1][0] < merge_window:
-                if priority[label] < priority[merged[-1][1]]:
-                    merged[-1] = (merged[-1][0], label)
-                continue
-            merged.append((t, label))
-
-        self.onsets = merged
+        self.onsets = band_hits
         return self.onsets
