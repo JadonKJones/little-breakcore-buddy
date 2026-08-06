@@ -20,9 +20,12 @@ void AmenDrummerProcessor::prepareToPlay(double newSampleRate, int samplesPerBlo
     sampleRate = newSampleRate;
     monoScratch.setSize(1, samplesPerBlock);
 
-    kick.prepare(sampleRate, samplesPerBlock, BandDetector::Type::LowPass, 20.0f, 150.0f);
-    snare.prepare(sampleRate, samplesPerBlock, BandDetector::Type::BandPass, 150.0f, 4000.0f);
-    cymbal.prepare(sampleRate, samplesPerBlock, BandDetector::Type::HighPass, 4000.0f, 20000.0f);
+    // Swapped from the "obvious" kick=low/snare=mid assignment: on real
+    // material the low band consistently catches snares better and the mid
+    // band catches kicks better (matches analyzer.py's DrumAnalyzer.BANDS).
+    kick.prepare(sampleRate, samplesPerBlock, 150.0f, 4000.0f);
+    snare.prepare(sampleRate, samplesPerBlock, 20.0f, 150.0f);
+    cymbal.prepare(sampleRate, samplesPerBlock, 4000.0f, (float)(sampleRate / 2.0));
 
     resetState();
 }

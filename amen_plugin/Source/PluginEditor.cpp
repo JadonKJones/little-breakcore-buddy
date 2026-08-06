@@ -47,7 +47,15 @@ void AmenDrummerEditor::pollForNewOnsets()
               [](const auto& a, const auto& b) { return a.second < b.second; });
 
     for (auto& onset : newOnsets)
+    {
+        const bool isPerc = onset.first == "snare" || onset.first == "cymbal";
+        if (isPerc && lastPercOnsetMs != 0 && onset.second - lastPercOnsetMs < kSnareCymbalDedupeMs)
+            continue;
+        if (isPerc)
+            lastPercOnsetMs = onset.second;
+
         sprite.trigger(onset.first, onset.second);
+    }
 }
 
 void AmenDrummerEditor::paint(juce::Graphics& g)

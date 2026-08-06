@@ -11,14 +11,23 @@ class DrumAnalyzer:
     """
 
     BANDS = {
-        "kick": (20, 150),
-        "snare": (150, 4000),
+        "snare": (20, 150),
+        "kick": (150, 4000),
         "cymbal": (4000, None),
     }
 
     def __init__(self, sr):
         self.sr = sr
         self.onsets = []  # list of (time, label), sorted, deduped
+
+    # A snare and a cymbal landing within this many seconds of each other are
+    # almost always spectral leakage from one physical hit into both bands,
+    # not two real hits -- both compete for the sprite's "base pose", so
+    # letting both through causes a pose switch immediately followed by
+    # another one, which reads as noise rather than a real roll. Kick is
+    # exempt: it only overlays the current pose, so a kick landing alongside
+    # a snare/cymbal is harmless and worth keeping.
+    SNARE_CYMBAL_DEDUPE_WINDOW = 0.015
 
     def detect_onsets(self, audio_data):
         """Runs per-band onset detection and returns a single chronological
@@ -41,5 +50,15 @@ class DrumAnalyzer:
                 band_hits.append((float(t), label))
 
         band_hits.sort(key=lambda h: h[0])
-        self.onsets = band_hits
+
+        deduped = []
+        last_perc_time = None
+        for t, label in band_hits:
+            if label in ("snare", "cymbal"):
+                if last_perc_time is not None and t - last_perc_time < self.SNARE_CYMBAL_DEDUPE_WINDOW:
+                    continue
+                last_perc_time = t
+            deduped.append((t, label))
+
+        self.onsets = deduped
         return self.onsets

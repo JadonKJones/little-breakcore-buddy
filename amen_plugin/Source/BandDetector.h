@@ -3,113 +3,132 @@
 #include <juce_dsp/juce_dsp.h>
 #include <atomic>
 #include <cmath>
+#include <vector>
 
-/** Runs one frequency band (low/mid/high, matching analyzer.py's kick/snare/
-    cymbal split) through a fixed filter, tracks a fast-attack/fast-release
-    envelope on the filtered signal, and fires an onset when the current
-    block jumps sufficiently above that envelope. */
+/** Real-time spectral-flux onset detector for one frequency band (matching
+    analyzer.py's kick/snare/cymbal band split). Unlike a simple RMS-vs-
+    envelope threshold, this compares the magnitude spectrum frame-to-frame
+    (restricted to the band's frequency bins) and fires when that spectral
+    change rises well above its own recent rolling average -- much closer to
+    what librosa's onset_strength actually computes offline. */
 class BandDetector
 {
 public:
-    enum class Type { LowPass, BandPass, HighPass };
-
-    void prepare(double newSampleRate, int maxBlockSize, Type type, float freqLowHz, float freqHighHz)
+    void prepare(double newSampleRate, int /*maxBlockSize*/, float freqLowHz, float freqHighHz)
     {
         sampleRate = newSampleRate;
-        scratch.setSize(1, maxBlockSize);
 
-        if (type == Type::LowPass)
-        {
-            stage1.coefficients = juce::dsp::IIR::Coefficients<float>::makeLowPass(sampleRate, freqHighHz);
-            twoStage = false;
-        }
-        else if (type == Type::HighPass)
-        {
-            stage1.coefficients = juce::dsp::IIR::Coefficients<float>::makeHighPass(sampleRate, freqLowHz);
-            twoStage = false;
-        }
-        else // BandPass, implemented as cascaded high-pass + low-pass (wide bands don't
-             // behave well as a single biquad bandpass with a low Q)
-        {
-            stage1.coefficients = juce::dsp::IIR::Coefficients<float>::makeHighPass(sampleRate, freqLowHz);
-            stage2.coefficients = juce::dsp::IIR::Coefficients<float>::makeLowPass(sampleRate, freqHighHz);
-            twoStage = true;
-        }
-
-        juce::dsp::ProcessSpec spec { sampleRate, (juce::uint32)maxBlockSize, 1 };
-        stage1.prepare(spec);
-        stage2.prepare(spec);
+        // Bin 0 (DC) and the Nyquist bin are packed specially by JUCE's real-only
+        // FFT (not as a normal [2*bin, 2*bin+1] pair), so both are avoided here.
+        const double binHz = sampleRate / (double)kFftSize;
+        binLow = juce::jlimit(1, kNumBins - 2, (int)std::round(freqLowHz / binHz));
+        binHigh = juce::jlimit(binLow, kNumBins - 2, (int)std::round(freqHighHz / binHz));
 
         reset();
     }
 
     void reset()
     {
-        stage1.reset();
-        stage2.reset();
-        envelope = 0.0f;
+        std::fill(ringBuffer.begin(), ringBuffer.end(), 0.0f);
+        std::fill(prevMagnitude.begin(), prevMagnitude.end(), 0.0f);
+        std::fill(fluxHistory.begin(), fluxHistory.end(), 0.0f);
+        ringWritePos = 0;
+        samplesSinceHop = 0;
+        fluxHistoryPos = 0;
+        fluxHistorySum = 0.0f;
         lastTriggerMs = 0;
     }
 
-    /** mono: single-channel input for this block. Returns true if this call triggered an onset. */
-    bool processBlock(const float* mono, int numSamples, juce::uint32 nowMs)
+    /** mono: single-channel input for this block, in host block order. */
+    void processBlock(const float* mono, int numSamples, juce::uint32 nowMs)
     {
-        auto* work = scratch.getWritePointer(0);
-        std::copy(mono, mono + numSamples, work);
-
-        juce::dsp::AudioBlock<float> block(scratch.getArrayOfWritePointers(), 1, (size_t)numSamples);
-        juce::dsp::ProcessContextReplacing<float> context(block);
-        stage1.process(context);
-        if (twoStage)
-            stage2.process(context);
-
-        float sumSquares = 0.0f;
         for (int i = 0; i < numSamples; ++i)
-            sumSquares += work[i] * work[i];
-        const float blockRms = std::sqrt(sumSquares / (float)juce::jmax(1, numSamples));
+        {
+            ringBuffer[(size_t)ringWritePos] = mono[i];
+            ringWritePos = (ringWritePos + 1) % kFftSize;
 
-        debugRms.store(blockRms);
+            if (++samplesSinceHop >= kHopSize)
+            {
+                samplesSinceHop = 0;
+                analyseFrame(nowMs);
+            }
+        }
+    }
 
-        bool triggered = false;
-        if (blockRms > kMinLevel
-            && blockRms > envelope * kThresholdRatio
+    std::atomic<juce::uint32> lastOnsetMs { 0 };
+    std::atomic<float> debugRms { 0.0f };      // repurposed: current flux
+    std::atomic<float> debugEnvelope { 0.0f }; // repurposed: adaptive threshold
+
+private:
+    static constexpr int kFftOrder = 11;
+    static constexpr int kFftSize = 1 << kFftOrder; // 2048
+    static constexpr int kHopSize = kFftSize / 2;   // 1024 (~50% overlap)
+    static constexpr int kNumBins = kFftSize / 2 + 1;
+
+    static constexpr int kFluxHistorySize = 24; // rolling window for the adaptive floor
+    static constexpr float kThresholdRatio = 1.6f; // flux must exceed rolling-average floor * this
+    static constexpr float kMinFlux = 0.0025f;      // ignore near-silence
+    static constexpr int kMinGapMs = 40;            // debounce
+
+    void analyseFrame(juce::uint32 nowMs)
+    {
+        // Unwrap the ring buffer into chronological order for the FFT.
+        for (int i = 0; i < kFftSize; ++i)
+            fftData[(size_t)i] = ringBuffer[(size_t)((ringWritePos + i) % kFftSize)];
+        std::fill(fftData.begin() + kFftSize, fftData.end(), 0.0f);
+
+        window.multiplyWithWindowingTable(fftData.data(), (size_t)kFftSize);
+        fft.performRealOnlyForwardTransform(fftData.data());
+
+        float flux = 0.0f;
+        for (int bin = binLow; bin <= binHigh; ++bin)
+        {
+            const float re = fftData[(size_t)(2 * bin)];
+            const float im = fftData[(size_t)(2 * bin + 1)];
+            const float mag = std::sqrt(re * re + im * im);
+
+            const float diff = mag - prevMagnitude[(size_t)bin];
+            if (diff > 0.0f)
+                flux += diff;
+
+            prevMagnitude[(size_t)bin] = mag;
+        }
+        flux /= (float)(binHigh - binLow + 1);
+
+        debugRms.store(flux);
+
+        const float adaptiveFloor = fluxHistorySum / (float)kFluxHistorySize;
+        debugEnvelope.store(adaptiveFloor * kThresholdRatio);
+
+        if (flux > kMinFlux
+            && flux > adaptiveFloor * kThresholdRatio
             && (nowMs - lastTriggerMs) > (juce::uint32)kMinGapMs)
         {
             lastTriggerMs = nowMs;
             lastOnsetMs.store(nowMs);
-            triggered = true;
         }
 
-        if (blockRms > envelope)
-        {
-            envelope = blockRms;
-        }
-        else
-        {
-            const float blockSeconds = (float)numSamples / (float)sampleRate;
-            const float releaseCoeff = std::exp(-blockSeconds / kReleaseSeconds);
-            envelope = envelope * releaseCoeff + blockRms * (1.0f - releaseCoeff);
-        }
-        debugEnvelope.store(envelope);
-
-        return triggered;
+        fluxHistorySum += flux - fluxHistory[(size_t)fluxHistoryPos];
+        fluxHistory[(size_t)fluxHistoryPos] = flux;
+        fluxHistoryPos = (fluxHistoryPos + 1) % kFluxHistorySize;
     }
 
-    std::atomic<juce::uint32> lastOnsetMs { 0 };
-    std::atomic<float> debugRms { 0.0f };
-    std::atomic<float> debugEnvelope { 0.0f };
-
-private:
     double sampleRate = 44100.0;
-    bool twoStage = false;
-    juce::dsp::IIR::Filter<float> stage1, stage2;
-    juce::AudioBuffer<float> scratch;
+    int binLow = 0, binHigh = 0;
 
-    float envelope = 0.0f;
+    juce::dsp::FFT fft { kFftOrder };
+    juce::dsp::WindowingFunction<float> window { (size_t)kFftSize, juce::dsp::WindowingFunction<float>::hann };
+
+    std::array<float, kFftSize> ringBuffer {};
+    int ringWritePos = 0;
+    int samplesSinceHop = 0;
+
+    std::array<float, kFftSize * 2> fftData {};
+    std::array<float, kNumBins> prevMagnitude {};
+
+    std::array<float, kFluxHistorySize> fluxHistory {};
+    int fluxHistoryPos = 0;
+    float fluxHistorySum = 0.0f;
+
     juce::uint32 lastTriggerMs = 0;
-
-    static constexpr float kThresholdRatio = 1.5f;
-    static constexpr float kMinLevel = 0.008f; // filtered bands carry less energy than broadband
-    static constexpr int kMinGapMs = 50;
-    static constexpr float kReleaseSeconds = 0.05f;
 };

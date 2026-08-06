@@ -34,8 +34,8 @@ public:
     bool isBusesLayoutSupported(const BusesLayout& layout) const override;
 
     // Matches analyzer.py's kick/snare/cymbal frequency-band split.
-    BandDetector kick;   // 20-150 Hz, low-pass
-    BandDetector snare;  // 150-4000 Hz, band-pass
+    BandDetector kick;   // 150-4000 Hz, band-pass
+    BandDetector snare;  // 20-150 Hz, low-pass
     BandDetector cymbal; // 4000 Hz+, high-pass
 
     std::atomic<juce::int64> debugBlockCount { 0 };
