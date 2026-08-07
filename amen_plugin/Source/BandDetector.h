@@ -65,10 +65,36 @@ private:
     static constexpr int kHopSize = kFftSize / 2;   // 1024 (~50% overlap)
     static constexpr int kNumBins = kFftSize / 2 + 1;
 
-    static constexpr int kFluxHistorySize = 24; // rolling window for the adaptive floor
-    static constexpr float kThresholdRatio = 1.6f; // flux must exceed rolling-average floor * this
+    // Kept short deliberately: with kHopSize=1024 (~23ms/frame), a 24-frame
+    // history would span ~550ms. During a fast roll several genuine hits land
+    // inside that single window, so the rolling average rises to match the
+    // roll itself and individual hits stop clearing threshold*ratio -- the
+    // same failure mode as librosa's default ~1.16s pre_avg/post_avg window
+    // (see analyzer.py). A ~140ms window stays local enough to still resolve
+    // hits within a roll instead of averaging them away.
+    static constexpr int kFluxHistorySize = 6;
     static constexpr float kMinFlux = 0.0025f;      // ignore near-silence
-    static constexpr int kMinGapMs = 40;            // debounce
+    static constexpr int kMinGapMs = 20;            // debounce -- real hits can land ~23ms apart
+
+    // Two-tier detection, adapted for real time: analyzer.py's offline
+    // version can scan the *whole* track to find gaps and retroactively fill
+    // them with a looser threshold -- a plugin can't look into the future.
+    // The causal equivalent: STRICT is the normal/primary threshold (fewer
+    // false positives in ordinary passages). If nothing has cleared it for
+    // longer than GAP_FILL, that's exactly what an unresolved roll looks
+    // like in real time too, so LOOSE gets a chance to catch it until
+    // *something* fires again (which immediately puts us back in strict
+    // mode -- no need to wait out a fixed cooldown).
+    static constexpr float kStrictRatio = 2.2f;
+    static constexpr float kLooseRatio = 1.6f;
+    static constexpr juce::uint32 kGapFillMs = 350;
+
+    // A relative ratio-over-local-average can still fire in genuine silence:
+    // in a near-silent stretch, even a tiny stray blip is trivially "many
+    // times" its own near-zero local neighborhood. This is an absolute floor
+    // on the RAW audio's own level (matches analyzer.py's ABSOLUTE_SILENCE_RMS),
+    // so it stays meaningful regardless of how the relative math shakes out.
+    static constexpr float kAbsoluteSilenceRms = 0.02f;
 
     void analyseFrame(juce::uint32 nowMs)
     {
@@ -76,6 +102,13 @@ private:
         for (int i = 0; i < kFftSize; ++i)
             fftData[(size_t)i] = ringBuffer[(size_t)((ringWritePos + i) % kFftSize)];
         std::fill(fftData.begin() + kFftSize, fftData.end(), 0.0f);
+
+        // Raw-sample RMS, computed before windowing/FFT overwrite fftData in place.
+        float sumSquares = 0.0f;
+        for (int i = 0; i < kFftSize; ++i)
+            sumSquares += fftData[(size_t)i] * fftData[(size_t)i];
+        const float rawRms = std::sqrt(sumSquares / (float)kFftSize);
+        const bool notSilent = rawRms >= kAbsoluteSilenceRms;
 
         window.multiplyWithWindowingTable(fftData.data(), (size_t)kFftSize);
         fft.performRealOnlyForwardTransform(fftData.data());
@@ -98,10 +131,14 @@ private:
         debugRms.store(flux);
 
         const float adaptiveFloor = fluxHistorySum / (float)kFluxHistorySize;
-        debugEnvelope.store(adaptiveFloor * kThresholdRatio);
+
+        const bool gapTooLong = (nowMs - lastTriggerMs) > kGapFillMs;
+        const float ratio = gapTooLong ? kLooseRatio : kStrictRatio;
+        debugEnvelope.store(adaptiveFloor * ratio);
 
         if (flux > kMinFlux
-            && flux > adaptiveFloor * kThresholdRatio
+            && flux > adaptiveFloor * ratio
+            && notSilent
             && (nowMs - lastTriggerMs) > (juce::uint32)kMinGapMs)
         {
             lastTriggerMs = nowMs;

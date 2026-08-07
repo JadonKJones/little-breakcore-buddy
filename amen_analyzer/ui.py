@@ -96,13 +96,18 @@ class WaveformDisplay:
                 for x, amp in enumerate(waveform):
                     y_top = y_center - int(amp * self.height / 2)
                     y_bot = y_center + int(amp * self.height / 2)
-                    pygame.draw.line(self.base_surface, (0, 200, 100), (x, y_top), (x, y_bot))
+                    pygame.draw.line(self.base_surface, (90, 100, 130), (x, y_top), (x, y_bot))
 
         for i, (onset_time, label) in enumerate(self.onsets):
             if self.view_start <= onset_time <= self.view_start + self.view_duration:
                 ox = self.time_to_x(onset_time)
                 onset_color = self.COLORS.get(label, (200, 200, 200))
                 line_width = 3 if i == self.selected_index else 1
+                # A dark outline keeps markers visible against a loud, solidly-filled
+                # waveform -- otherwise a dense run of same-colored markers (e.g. a
+                # snare roll against the waveform's own green fill) visually vanishes
+                # right where it matters most.
+                pygame.draw.line(self.base_surface, (10, 10, 15), (ox, 0), (ox, self.height), line_width + 2)
                 pygame.draw.line(self.base_surface, onset_color, (ox, 0), (ox, self.height), line_width)
 
         self._dirty = False

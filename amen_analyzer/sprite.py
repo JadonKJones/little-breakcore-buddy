@@ -9,7 +9,8 @@ else:
     ANIMATION_DIR = os.path.join(os.path.dirname(__file__), "..", "animation frames")
 
 IDLE_TIMEOUT = 0.12       # seconds since last snare/crash hit before returning to idle (also resets cycle)
-KICK_OVERLAY_DURATION = 0.12  # how long the "k" variant of the current pose shows after a kick
+KICK_OVERLAY_DURATION = 0.06  # how long the "k" variant of the current pose shows after a kick
+KICK_ROLL_GAP = 0.12      # max gap between kicks to still count as "still rolling" (separate from the overlay's own display duration)
 KICK_ROLL_THRESHOLD = 1   # kick_cycle_index at/above this means "2nd+ rapid kick" -- a roll, not a single hit
 
 # Which crash pair to start on, based on the note that preceded the crash.
@@ -56,7 +57,7 @@ class DrummerSprite:
         self.crash_pair = CRASH_PAIRS["snare"]
         self.last_perc_type = None  # most recent of "kick"/"snare", used to pick crash_pair
         self.last_kick_time = -999.0
-        self.kick_cycle_index = 0  # alternates snare3/snare4 when a kick lands with nothing else active
+        self.kick_cycle_index = 0  # alternates snare5/snare6 during a kick roll
         self.last_snare_frame = None  # 1-6, whichever snare-look frame was most recently shown
         self.last_crash_frame = None  # 1-4, whichever crash frame was most recently shown
         self.snare_start_index = 0  # 0-based, which snare frame a fresh snare run starts on
@@ -72,13 +73,13 @@ class DrummerSprite:
         """Call once, in onset-time order, each time playback crosses an onset."""
         if label == "kick":
             kick_gap = onset_time - self.last_kick_time
-            self.kick_cycle_index = self.kick_cycle_index + 1 if kick_gap < KICK_OVERLAY_DURATION else 0
+            self.kick_cycle_index = self.kick_cycle_index + 1 if kick_gap < KICK_ROLL_GAP else 0
             self.last_kick_time = onset_time
             self.last_perc_type = "kick"
             if self.kick_cycle_index >= KICK_ROLL_THRESHOLD:
                 # A roll (2nd+ rapid kick): kick takes over as the active pose,
                 # same as snare/cymbal would, instead of just a brief overlay.
-                self.last_snare_frame = 3 if self.kick_cycle_index % 2 == 0 else 4
+                self.last_snare_frame = 5 if self.kick_cycle_index % 2 == 0 else 6
                 self.last_pose_label = "kick"
                 self.last_pose_time = onset_time
             return
@@ -139,9 +140,9 @@ class DrummerSprite:
             return self.frames["idle_k"] if overlay_active else self.frames["idle"]
 
         if self.last_pose_label == "kick":
-            # Mid-roll: behaves just like a snare pose, alternating snare3/snare4.
+            # Mid-roll: behaves just like a snare pose, alternating snare5/snare6.
             frames = self.frames["snare"]
-            return frames[2] if self.kick_cycle_index % 2 == 0 else frames[3]
+            return frames[4] if self.kick_cycle_index % 2 == 0 else frames[5]
 
         if self.last_pose_label == "snare":
             frames = self.frames["snare_k"] if overlay_active else self.frames["snare"]

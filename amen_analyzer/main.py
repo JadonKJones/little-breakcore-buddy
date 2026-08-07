@@ -54,12 +54,15 @@ def main():
 
     try:
         audio_engine.load_audio(song_path)
-        waveform_ui.set_audio(audio_engine.audio_data, audio_engine.sr, audio_engine.duration)
 
         if drums_path == song_path:
             drums_audio, drums_sr = audio_engine.audio_data, audio_engine.sr
         else:
             drums_audio, drums_sr = lr.load(drums_path, sr=None, mono=True)
+
+        # Show the drums-only waveform (what the onsets actually line up with)
+        # even though playback/timing/video export use the full song's audio.
+        waveform_ui.set_audio(drums_audio, drums_sr, audio_engine.duration)
 
         analyzer = DrumAnalyzer(sr=drums_sr)
         onset_labels = analyzer.detect_onsets(drums_audio)

@@ -113,6 +113,10 @@
             background: #2b2b2b; border: 1px solid #000; box-shadow: 3px 3px 0 rgba(0,0,0,0.4);
             font-family: 'VT323', monospace;
         }
+        .vlc-player.vlc-featured {
+            max-width: 760px; margin: 0 auto; box-shadow: 4px 4px 0 rgba(0,0,0,0.5);
+            border: 2px solid #ff8800;
+        }
         .vlc-titlebar {
             background: linear-gradient(180deg, #4a4a4a, #3a3a3a);
             color: #ddd; font-size: 0.95rem; padding: 5px 8px;
@@ -254,6 +258,46 @@
 
             <section id="demo">
                 <h2>Demo</h2>
+
+                <div class="vlc-player vlc-featured">
+                    <div class="vlc-titlebar">
+                        <span class="vlc-cone">🔶</span><span class="fname">v1.1-comparison.mp4</span>
+                        <span class="vlc-winbtns"><span>_</span><span>□</span><span>X</span></span>
+                    </div>
+                    <div class="vlc-menubar"><span>Media</span><span>Playback</span><span>Audio</span><span>Video</span><span>Tools</span></div>
+                    <div class="vlc-screen">
+                        <video controls preload="metadata"><source src="assets/v1.1.mp4" type="video/mp4"></video>
+                    </div>
+                    <div class="vlc-controls">
+                        <div class="vlc-seek"><div class="vlc-seek-fill"></div></div>
+                        <div class="vlc-buttons">
+                            <span>⏮</span><span class="vlc-play">▶</span><span>⏹</span><span>⏭</span>
+                            <span class="vlc-vol">🔊</span>
+                            <span class="vlc-time">00:00 / 00:00</span>
+                        </div>
+                    </div>
+                </div>
+                <p class="demo-caption">v1.1 update — old vs. new detection side by side</p>
+                <ul class="demo-songs">
+                            <li>db_amen_2019 (drexgod)</li>
+                        </ul>
+                        <p class="demo-note">vocals removed and then i added some</p>
+
+                <div class="card" style="max-width: 760px; margin: 16px auto 0;">
+                    <h3>WHAT'S NEW IN v1.1</h3>
+                    <ul class="bullets">
+                        <li><strong>Rolls actually get detected now.</strong></li>
+                        <li><strong>Way fewer false hits and hits when there was no audio</strong> </li>
+                        <li><strong>The animations look better when you switch snare and kick so I did that</strong></li>
+                        <li><strong>A lot of animation changes were made actually</strong></li>
+                        <li><strong>Waveform shows the drum only track.</strong></li>
+                        <li><strong>Also the waveform is white now and not green because it was confusing</strong></li>
+                        <li><strong>The FL Studio Plugin actually works sort of</strong></li>
+                    </ul>
+                </div>
+
+                <hr class="rainbow">
+
                 <div class="demo-grid">
                     <div>
                         <div class="vlc-player">
@@ -276,9 +320,8 @@
                         </div>
                         <p class="demo-caption">desktop app — onset detection + editing</p>
                         <ul class="demo-songs">
-                            <li>look at me haphazardly (rehirable)</li>
+                            <li>RAMKO ON TV (Andy pls)</li>
                         </ul>
-                        <p class="demo-note">vocals removed</p>
                     </div>
                     <div>
                         <div class="vlc-player">
@@ -288,7 +331,7 @@
                             </div>
                             <div class="vlc-menubar"><span>Media</span><span>Playback</span><span>Audio</span><span>Video</span><span>Tools</span></div>
                             <div class="vlc-screen">
-                                <video controls preload="metadata"><source src="assets/novocals_animated.mp4" type="video/mp4"></video>
+                                <video controls preload="metadata"><source src="assets/hello_animated.mp4" type="video/mp4"></video>
                             </div>
                             <div class="vlc-controls">
                                 <div class="vlc-seek"><div class="vlc-seek-fill"></div></div>
@@ -303,7 +346,7 @@
                         <ul class="demo-songs">
                             <li>db_amen_2019 (drexgod)</li>
                         </ul>
-                        <p class="demo-note">vocals removed</p>
+                        <p class="demo-note">vocals removed and then i added some</p>
                     </div>
                     <div>
                         <div class="vlc-player">

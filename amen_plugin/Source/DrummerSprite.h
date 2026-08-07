@@ -56,14 +56,14 @@ public:
         if (label == "kick")
         {
             const juce::uint32 kickGap = onsetMs - lastKickMs;
-            kickCycleIndex = (kickGap < kKickOverlayMs) ? kickCycleIndex + 1 : 0;
+            kickCycleIndex = (kickGap < kKickRollGapMs) ? kickCycleIndex + 1 : 0;
             lastKickMs = onsetMs;
             lastPercType = "kick";
             if (kickCycleIndex >= kKickRollThreshold)
             {
                 // A roll (2nd+ rapid kick): kick takes over as the active pose,
                 // same as snare/cymbal would, instead of just a brief overlay.
-                lastSnareFrame = (kickCycleIndex % 2 == 0) ? 3 : 4;
+                lastSnareFrame = (kickCycleIndex % 2 == 0) ? 5 : 6;
                 lastPoseLabel = "kick";
                 lastPoseTimeMs = onsetMs;
             }
@@ -129,8 +129,8 @@ public:
 
         if (lastPoseLabel == "kick")
         {
-            // Mid-roll: behaves just like a snare pose, alternating snare3/snare4.
-            return snareImages[(size_t)(kickCycleIndex % 2 == 0 ? 2 : 3)];
+            // Mid-roll: behaves just like a snare pose, alternating snare5/snare6.
+            return snareImages[(size_t)(kickCycleIndex % 2 == 0 ? 4 : 5)];
         }
 
         if (lastPoseLabel == "snare")
@@ -150,7 +150,8 @@ public:
 
 private:
     static constexpr juce::uint32 kIdleTimeoutMs = 120;   // matches sprite.py IDLE_TIMEOUT = 0.12s
-    static constexpr juce::uint32 kKickOverlayMs = 120;   // matches sprite.py KICK_OVERLAY_DURATION = 0.12s
+    static constexpr juce::uint32 kKickOverlayMs = 60;    // matches sprite.py KICK_OVERLAY_DURATION = 0.06s
+    static constexpr juce::uint32 kKickRollGapMs = 120;   // matches sprite.py KICK_ROLL_GAP = 0.12s
     static constexpr int kKickRollThreshold = 1;           // matches sprite.py KICK_ROLL_THRESHOLD
 
     /** The sprite's arm position has to continue naturally: whichever
@@ -201,7 +202,7 @@ private:
     std::pair<int, int> crashPair { 0, 1 };
     juce::String lastPercType;    // most recent of "kick"/"snare", used to pick crashPair
     juce::uint32 lastKickMs = 0;
-    int kickCycleIndex = 0;       // consecutive rapid kicks -- alternates snare3/snare4 during a kick roll
+    int kickCycleIndex = 0;       // consecutive rapid kicks -- alternates snare5/snare6 during a kick roll
     int lastSnareFrame = 0;       // 1-6, whichever snare-look frame was most recently shown (0 = none yet)
     int lastCrashFrame = 0;       // 1-4, whichever crash frame was most recently shown (0 = none yet)
     int snareStartIndex = 0;      // 0-based, which snare frame a fresh snare run starts on
